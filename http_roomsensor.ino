@@ -56,6 +56,34 @@ void wifiDisconnect(){
     WiFi.disconnect(); 
 }
 
+//write temperature and humiditi in given variables
+//-1 error
+int getTempHum(float* temperature, float* humidity){
+    //read values form sensore
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    //check values
+    if (isnan(h) || isnan(t)) {
+    #ifdef SERIALOUTPUT     
+            Serial.println("Fehler beim auslesen des Sensors!");
+    #endif
+        return -1;
+    }
+
+    #ifdef SERIALOUTPUT
+        Serial.print("Temperatur: ");
+        Serial.println(t);
+    #endif
+    *temperature = t;
+    #ifdef SERIALOUTPUT
+        Serial.print("Humidity: ");
+        Serial.println(h);
+    #endif
+    *humidity = h;
+    return 0;
+}
+
 void loop() {
   // put your main code here, to run repeatedly:
 
