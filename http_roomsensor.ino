@@ -85,6 +85,43 @@ int getTempHum(float* temperature, float* humidity){
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
 
+    //connect to wifi
+    wifiConnect();
+
+    //get sensor data
+    float temperature, humidity;
+    int status = getTempHum(&temperature, &humidity);
+    if(status != 0){
+        #ifdef SERIALOUTPUT
+                Serial.print("getTempHum status: ");
+                Serial.println(status);
+        #endif
+    }
+
+    //send request
+    if(!status){
+        status = sendRequest(temperature,humidity);
+        if(status != 0){
+            #ifdef SERIALOUTPUT
+                Serial.print("sendRequest status: ");
+                Serial.println(status);
+            #endif
+        }else{
+            if(temperature<20.0){
+                #ifdef SERIALOUTPUT
+                    Serial.println("too cold");
+                #endif
+            }
+        }
+    }
+    
+    //disconect from Wifi
+    wifiDisconnect();
+
+    //sleep
+    #ifdef SERIALOUTPUT
+        Serial.println("sleep");
+    #endif
+    ESP.deepSleep(SLEEPTIME*60*1000000); // sleep SLEEPTIME minutes
 }
