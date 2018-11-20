@@ -8,6 +8,18 @@
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
+//shiftregister
+#define DATAPIN 13
+#define STORAGEPIN 14
+#define SHIFTPIN 12
+
+//display values
+#define EMPTY 0x00 //all LEDs off
+#define RED 0x01	    //red LED at pin 0 on
+#define YELLOW 0x02      //red YELLOW at pin 2 on
+#define GREEN 0x04	//red GREEN at pin 1 on
+#define BLUE 0x08      //red YELLOW at pin 2 on
+
 //sleepsetup
 #define SLEEPTIME 10 //sleep for 10 minutes
 
@@ -56,6 +68,66 @@ void wifiDisconnect(){
     WiFi.disconnect(); 
 }
 
+//send temperate and humiditi to server via http
+//requires a special http server running
+//-1 unknown error
+//-2 no connection
+//-3 no answere
+//-4 error while server process http request
+int sendRequest(float temperature, float humidity){
+    display(BLUE);
+    //open connection to HOST at HOSTPORT
+    WiFiClient client;
+    if (!client.connect(HOST, HOSTPORT)) {
+    #ifdef SERIALOUTPUT
+            Serial.println("connection failed");
+    #endif
+            return -2;
+        }else{
+    #ifdef SERIALOUTPUT
+            Serial.println("connected");
+    #endif
+    }
+
+    //send http request to Host
+    String httpRequest = String("GET")+" /?temp="+temperature+"&hum="+humidity +" HTTP/1.1\n" +"Host: " + HOST + "\nConnection: close\n\n";
+    Serial.println(httpRequest);
+    client.print(httpRequest);
+
+    //wait for answere
+    unsigned long timeout = millis();
+    while (client.available() == 0) {
+        if (millis() - timeout > 20000) {   //timeout after 20 seconds
+        #ifdef SERIALOUTPUT
+            Serial.println("no answere form client");
+        #endif
+            client.stop();
+            return -3;
+        }
+    }
+
+    //get answere
+    while (client.available()) {
+        String answere = client.readString();
+        #ifdef SERIALOUTPUT
+            Serial.println(answere);
+        #endif
+            if(answere.toInt()==-1){
+        #ifdef SERIALOUTPUT
+                Serial.println("server returend error");
+        #endif
+            return -4;
+        }
+    }
+
+    #ifdef SERIALOUTPUT
+        Serial.println();
+        Serial.println("closing connection");
+    #endif
+    display(EMPTY);
+    return 0;
+}
+
 //write temperature and humiditi in given variables
 //-1 error
 int getTempHum(float* temperature, float* humidity){
@@ -84,7 +156,20 @@ int getTempHum(float* temperature, float* humidity){
     return 0;
 }
 
+//Displays values with leds
+void display(int i){
+    #ifdef SERIALOUTPUT
+        Serial.print("Display code: ");
+        Serial.println(i);
+    #endif
+    // put your main code here, to run repeatedly:
+    digitalWrite(STORAGEPIN, LOW);
+    shiftOut(DATAPIN, SHIFTPIN, MSBFIRST, i);
+    digitalWrite(STORAGEPIN, HIGH);
+}
+
 void loop() {
+  display(EMPTY);
 
     //connect to wifi
     wifiConnect();
@@ -93,6 +178,7 @@ void loop() {
     float temperature, humidity;
     int status = getTempHum(&temperature, &humidity);
     if(status != 0){
+        display(RED);
         #ifdef SERIALOUTPUT
                 Serial.print("getTempHum status: ");
                 Serial.println(status);
@@ -103,12 +189,17 @@ void loop() {
     if(!status){
         status = sendRequest(temperature,humidity);
         if(status != 0){
+            display(RED);
             #ifdef SERIALOUTPUT
                 Serial.print("sendRequest status: ");
                 Serial.println(status);
             #endif
         }else{
+            display(GREEN);
+            delay(1000);
+            display(EMPTY);
             if(temperature<20.0){
+                display(YELLOW);
                 #ifdef SERIALOUTPUT
                     Serial.println("too cold");
                 #endif
@@ -124,4 +215,5 @@ void loop() {
         Serial.println("sleep");
     #endif
     ESP.deepSleep(SLEEPTIME*60*1000000); // sleep SLEEPTIME minutes
+
 }
