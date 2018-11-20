@@ -33,6 +33,11 @@ void setup() {
 
     //dht setup
     dht.begin();
+
+    //shiftregister
+    pinMode(SHIFTPIN, OUTPUT);
+    pinMode(STORAGEPIN, OUTPUT);
+    pinMode(DATAPIN, OUTPUT);
 }
 
 //connect to wifi configuration in the config.h file
