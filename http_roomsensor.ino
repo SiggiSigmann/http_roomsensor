@@ -2,11 +2,16 @@
 #include <ESP8266WiFi.h> //conatins Wifi classes
 #include <ESP8266HTTPClient.h> //make a http request
 #include "DHT.h" //communicatin with dht11 module
+#include "MQ135.h" //interprate mq135 analog output
 
 //DHT
 #define DHTPIN 0     
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
+
+//MQ135
+#define MQ135PIN A0
+MQ135 gasSensor = MQ135(MQ135PIN); 
 
 //shiftregister
 #define DATAPIN 13
@@ -95,7 +100,8 @@ int sendRequest(float temperature, float humidity){
     }
 
     //send http request to Host
-    String httpRequest = String("GET")+" /?temp="+temperature+"&hum="+humidity +" HTTP/1.1\n" +"Host: " + HOST + "\nConnection: close\n\n";
+    String httpRequest = String("GET")+" /?temp="+temperature+"&hum="+humidity + "&air=" + airPPM +
+                                " HTTP/1.1\n" +"Host: " + HOST + "\nConnection: close\n\n";
     Serial.println(httpRequest);
     client.print(httpRequest);
 
@@ -161,6 +167,18 @@ int getTempHum(float* temperature, float* humidity){
     return 0;
 }
 
+//write air quality (in ppm) in given variable
+void getPPM(float* airPPM){
+    //measure air
+    float a = gasSensor.getPPM();
+
+    #ifdef SERIALOUTPUT
+        Serial.print("AirQuality: ");
+        Serial.println(a);
+    #endif
+    *airPPM = a;
+}
+
 //Displays values with leds
 void display(int i){
     #ifdef SERIALOUTPUT
@@ -180,7 +198,7 @@ void loop() {
     wifiConnect();
 
     //get sensor data
-    float temperature, humidity;
+    float temperature, humidity, airPPM;
     int status = getTempHum(&temperature, &humidity);
     if(status != 0){
         display(RED);
