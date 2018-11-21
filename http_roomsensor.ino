@@ -7,7 +7,7 @@
 //DHT
 #define DHTPIN 0     
 #define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
+DHT dht = DHT(DHTPIN, DHTTYPE);
 
 //MQ135
 #define MQ135PIN A0
@@ -29,7 +29,7 @@ MQ135 gasSensor = MQ135(MQ135PIN);
 #define SLEEPTIME 10 //sleep for 10 minutes
 
 //other constants
-#define SERIALOUTPUT
+//#define SERIALOUTPUT 1 //culd cause problems with dht11
 
 void setup() {
    #ifdef SERIALOUTPUT
@@ -84,7 +84,7 @@ void wifiDisconnect(){
 //-2 no connection
 //-3 no answere
 //-4 error while server process http request
-int sendRequest(float temperature, float humidity){
+int sendRequest(float temperature, float humidity, float airQuality){
     display(BLUE);
     //open connection to HOST at HOSTPORT
     WiFiClient client;
@@ -100,7 +100,7 @@ int sendRequest(float temperature, float humidity){
     }
 
     //send http request to Host
-    String httpRequest = String("GET")+" /?temp="+temperature+"&hum="+humidity + "&air=" + airPPM +
+    String httpRequest = String("GET")+" /?temp="+temperature+"&hum="+humidity + "&air=" + airQuality +
                                 " HTTP/1.1\n" +"Host: " + HOST + "\nConnection: close\n\n";
     Serial.println(httpRequest);
     client.print(httpRequest);
@@ -145,11 +145,11 @@ int getTempHum(float* temperature, float* humidity){
     //read values form sensore
     float h = dht.readHumidity();
     float t = dht.readTemperature();
-
+    
     //check values
     if (isnan(h) || isnan(t)) {
     #ifdef SERIALOUTPUT     
-            Serial.println("Fehler beim auslesen des Sensors!");
+            Serial.println("Error while reading temperature and humidity!");
     #endif
         return -1;
     }
@@ -168,7 +168,7 @@ int getTempHum(float* temperature, float* humidity){
 }
 
 //write air quality (in ppm) in given variable
-void getPPM(float* airPPM){
+void getAirPPM(float* airPPM){
     //measure air
     float a = gasSensor.getPPM();
 
@@ -207,10 +207,11 @@ void loop() {
                 Serial.println(status);
         #endif
     }
+    getAirPPM(&airPPM);
 
     //send request
     if(!status){
-        status = sendRequest(temperature,humidity);
+        status = sendRequest(temperature,humidity,airPPM);
         if(status != 0){
             display(RED);
             #ifdef SERIALOUTPUT
