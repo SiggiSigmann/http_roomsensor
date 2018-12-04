@@ -1,17 +1,7 @@
 #include "config.h"  //contain contants for networke connection (see constants-tamplates.h)
 #include <ESP8266WiFi.h> //conatins Wifi classes
 #include <ESP8266HTTPClient.h> //make a http request
-#include "DHT.h" //communicatin with dht11 module
-#include "MQ135.h" //interprate mq135 analog output
-
-//DHT
-#define DHTPIN 0     
-#define DHTTYPE DHT11
-DHT dht = DHT(DHTPIN, DHTTYPE);
-
-//MQ135
-#define MQ135PIN A0
-MQ135 gasSensor = MQ135(MQ135PIN); 
+#include <SoftwareSerial.h> //to use a second serial port
 
 //shiftregister
 #define DATAPIN 13
@@ -19,30 +9,50 @@ MQ135 gasSensor = MQ135(MQ135PIN);
 #define SHIFTPIN 12
 
 //display values
-#define EMPTY 0x00 //all LEDs off
-#define RED 0x01	    //red LED at pin 0 on
-#define YELLOW 0x02      //red YELLOW at pin 2 on
-#define GREEN 0x04	//red GREEN at pin 1 on
-#define BLUE 0x08      //red YELLOW at pin 2 on
+#define EMPTY 0x00      //all LEDs off
+#define RED 0x01	    //led RED at pin 0 on
+#define YELLOW 0x02     //led YELLOW at pin 1 on
+#define GREEN 0x04	    //led GREEN at pin 2 on
+#define BLUE 0x08       //led YELLOW at pin 3 on
+#define HEATER 0x10	    //turn on heater for the gas sensor at pin 4
 
 //sleepsetup
 #define SLEEPTIME 10 //sleep for 10 minutes
+#define WAITHEATTIME 30 //wait for 30 seconds
+
+//Serial constants
+#define NOREQUEST -1
+#define TEMPERATURE 0
+#define HUMIDITY 1
+#define AIRQUALITY 2
+
+// RX, TX 
+SoftwareSerial softSer(5, 4, false, 8);
 
 //other constants
-//#define SERIALOUTPUT 1 //culd cause problems with dht11
+#define SERIALOUTPUT 1 //culd cause problems with dht11
+
+union serialfloat {
+    char cval[4];
+    float fval;
+} sf;
+
+union serialint {
+    char cval[4];
+    int ival;
+} si;
 
 void setup() {
-   #ifdef SERIALOUTPUT
+    #ifdef SERIALOUTPUT
         Serial.begin(115200);
     #endif
-
-    //dht setup
-    dht.begin();
+    softSer.begin(300);
 
     //shiftregister
     pinMode(SHIFTPIN, OUTPUT);
     pinMode(STORAGEPIN, OUTPUT);
     pinMode(DATAPIN, OUTPUT);
+
 }
 
 //connect to wifi configuration in the config.h file
@@ -61,7 +71,6 @@ void wifiConnect(){
         }//wait for wifi connection but mus 10 seconds
     #ifdef SERIALOUTPUT
         if(WiFi.status() == WL_CONNECTED){
-
             Serial.println("WiFi connected");
             Serial.print("IP address: ");
             Serial.println(WiFi.localIP());
@@ -102,7 +111,9 @@ int sendRequest(float temperature, float humidity, float airQuality){
     //send http request to Host
     String httpRequest = String("GET")+" /?temp="+temperature+"&hum="+humidity + "&air=" + airQuality +
                                 " HTTP/1.1\n" +"Host: " + HOST + "\nConnection: close\n\n";
-    Serial.println(httpRequest);
+    #ifdef SERIALOUTPUT
+      Serial.println(httpRequest);
+    #endif
     client.print(httpRequest);
 
     //wait for answere
@@ -139,46 +150,6 @@ int sendRequest(float temperature, float humidity, float airQuality){
     return 0;
 }
 
-//write temperature and humiditi in given variables
-//-1 error
-int getTempHum(float* temperature, float* humidity){
-    //read values form sensore
-    float h = dht.readHumidity();
-    float t = dht.readTemperature();
-    
-    //check values
-    if (isnan(h) || isnan(t)) {
-    #ifdef SERIALOUTPUT     
-            Serial.println("Error while reading temperature and humidity!");
-    #endif
-        return -1;
-    }
-
-    #ifdef SERIALOUTPUT
-        Serial.print("Temperatur: ");
-        Serial.println(t);
-    #endif
-    *temperature = t;
-    #ifdef SERIALOUTPUT
-        Serial.print("Humidity: ");
-        Serial.println(h);
-    #endif
-    *humidity = h;
-    return 0;
-}
-
-//write air quality (in ppm) in given variable
-void getAirPPM(float* airPPM){
-    //measure air
-    float a = gasSensor.getPPM();
-
-    #ifdef SERIALOUTPUT
-        Serial.print("AirQuality: ");
-        Serial.println(a);
-    #endif
-    *airPPM = a;
-}
-
 //Displays values with leds
 void display(int i){
     #ifdef SERIALOUTPUT
@@ -191,27 +162,84 @@ void display(int i){
     digitalWrite(STORAGEPIN, HIGH);
 }
 
+float seralRequestData(int value){
+    #ifdef SERIALOUTPUT
+      Serial.print("\n-----------------------------\nsend: ");
+    #endif
+    si.ival = value;
+    #ifdef SERIALOUTPUT
+      Serial.print(si.ival);
+      Serial.print("(");
+      Serial.print(si.cval[0],DEC);
+      Serial.print(",");
+      Serial.print(si.cval[1],DEC);
+      Serial.println(")");
+    #endif
+    softSer.write(si.cval,4);   //send dada
+    //wait until data ar send back
+    while(!softSer.available()){
+        #ifdef SERIALOUTPUT
+          Serial.println("wait for answere ...");
+        #endif
+        delay(1000);
+    }
+    //read the receaved data
+    sf.fval=-100.0;
+    if (softSer.available()) {
+        #ifdef SERIALOUTPUT
+            Serial.println("received");
+        #endif
+        int i = 0;
+        while(softSer.available() && i<4) {
+            sf.cval[i++] = softSer.read();
+        }
+    }
+    #ifdef SERIALOUTPUT
+      Serial.println(sf.fval);
+      for(int i=0;i<4;i++){
+          Serial.print(sf.cval[i],DEC);
+          Serial.print(" ");
+      }
+      Serial.println("-----------------------------------");
+    #endif
+    return sf.fval;
+}
+
+void goToBed(float timeToSleep){
+    #ifdef SERIALOUTPUT
+        Serial.print("sleep: ");
+        Serial.println(timeToSleep);
+    #endif
+    ESP.deepSleep(timeToSleep*60*1000000); // sleep SLEEPTIME minutes
+}
+
 void loop() {
-  display(EMPTY);
+    softSer.listen();
+    display(EMPTY);
+    display(HEATER);
+
+    delay(WAITHEATTIME*1000);
 
     //connect to wifi
     wifiConnect();
 
     //get sensor data
     float temperature, humidity, airPPM;
-    int status = getTempHum(&temperature, &humidity);
-    if(status != 0){
-        display(RED);
-        #ifdef SERIALOUTPUT
-                Serial.print("getTempHum status: ");
-                Serial.println(status);
-        #endif
-    }
-    getAirPPM(&airPPM);
 
-    //send request
-    if(!status){
-        status = sendRequest(temperature,humidity,airPPM);
+    temperature = seralRequestData(TEMPERATURE);
+    humidity = seralRequestData(HUMIDITY);
+    airPPM = seralRequestData(AIRQUALITY);
+
+    display(EMPTY);
+    
+    //check values
+    if (isnan(temperature) || isnan(humidity)) {
+        #ifdef SERIALOUTPUT     
+            Serial.println("Error while reading temperature and humidity!");
+        #endif
+        display(RED);
+    }else{
+        int status = sendRequest(temperature,humidity,airPPM);
         if(status != 0){
             display(RED);
             #ifdef SERIALOUTPUT
@@ -235,9 +263,6 @@ void loop() {
     wifiDisconnect();
 
     //sleep
-    #ifdef SERIALOUTPUT
-        Serial.println("sleep");
-    #endif
-    ESP.deepSleep(SLEEPTIME*60*1000000); // sleep SLEEPTIME minutes
+    goToBed(SLEEPTIME);
 
 }
